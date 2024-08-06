@@ -1,0 +1,169 @@
+## templates/index.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mind Map Interface</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #mindmap-container {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ccc;
+            margin-top: 20px;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        .controls input, .controls button {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mind Map Interface</h1>
+    <div class="controls">
+        <input type="text" id="concept" placeholder="Enter concept">
+        <input type="text" id="data" placeholder="Enter data">
+        <button onclick="addNode()">Add Node</button>
+        <button onclick="removeNode()">Remove Node</button>
+    </div>
+    <div id="mindmap-container"></div>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const width = 960;
+            const height = 600;
+            const svg = d3.select("#mindmap-container").append("svg")
+                .attr("width", width)
+                .attr("height", height);
+
+            const simulation = d3.forceSimulation()
+                .force("link", d3.forceLink().id(d => d.id))
+                .force("charge", d3.forceManyBody().strength(-400))
+                .force("center", d3.forceCenter(width / 2, height / 2));
+
+            let nodes = [];
+            let links = [];
+
+            d3.json("/load_ontology").then(function (data) {
+                nodes = Object.keys(data.concepts).map(concept => ({ id: concept }));
+                renderMindMap(nodes, links);
+            });
+
+            function renderMindMap(nodes, links) {
+                svg.selectAll("*").remove();
+
+                const link = svg.append("g")
+                    .attr("class", "links")
+                    .selectAll("line")
+                    .data(links)
+                    .enter().append("line")
+                    .attr("stroke-width", 2);
+
+                const node = svg.append("g")
+                    .attr("class", "nodes")
+                    .selectAll("circle")
+                    .data(nodes)
+                    .enter().append("circle")
+                    .attr("r", 10)
+                    .attr("fill", "blue")
+                    .call(d3.drag()
+                        .on("start", dragStarted)
+                        .on("drag", dragged)
+                        .on("end", dragEnded));
+
+                const label = svg.append("g")
+                    .attr("class", "labels")
+                    .selectAll("text")
+                    .data(nodes)
+                    .enter().append("text")
+                    .attr("dy", -15)
+                    .attr("dx", 15)
+                    .text(d => d.id);
+
+                simulation
+                    .nodes(nodes)
+                    .on("tick", ticked);
+
+                simulation.force("link")
+                    .links(links);
+
+                function ticked() {
+                    link
+                        .attr("x1", d => d.source.x)
+                        .attr("y1", d => d.source.y)
+                        .attr("x2", d => d.target.x)
+                        .attr("y2", d => d.target.y);
+
+                    node
+                        .attr("cx", d => d.x)
+                        .attr("cy", d => d.y);
+
+                    label
+                        .attr("x", d => d.x)
+                        .attr("y", d => d.y);
+                }
+            }
+
+            function dragStarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+
+            function dragEnded(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+
+            window.addNode = function() {
+                const concept = document.getElementById('concept').value;
+                const data = document.getElementById('data').value;
+                if (concept && data) {
+                    const newNode = { id: concept };
+                    nodes.push(newNode);
+                    renderMindMap(nodes, links);
+                    fetch('/save_ontology', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ concepts: { [concept]: data } })
+                    });
+                }
+            };
+
+            window.removeNode = function() {
+                const concept = document.getElementById('concept').value;
+                if (concept) {
+                    const index = nodes.findIndex(node => node.id === concept);
+                    if (index !== -1) {
+                        nodes.splice(index, 1);
+                        renderMindMap(nodes, links);
+                        fetch('/save_ontology', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ concepts: { [concept]: null } })
+                        });
+                    }
+                }
+            };
+        });
+    </script>
+</body>
+</html>
